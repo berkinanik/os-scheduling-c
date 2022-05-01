@@ -1,6 +1,10 @@
 /*
-Berkin ANIK - 2397123
+Berkin ANIK
 EE442 - Operating Systems HW1
+
+solution to synchronization problem using only mutexes
+to compile the program:
+gcc -o output1.o main1.c -lpthread -lm
 */
 
 // include the header files
@@ -318,10 +322,9 @@ int *getSmallestTS(mytube *tube1, mytube *tube2, mytube *tube3,
   return smallestTS;
 }
 
-// generate a mutex for atom
-pthread_mutex_t atomMutex;
-
 // generate a mutex for info
+// since there will be only one info thread one mutex is enough for all
+// operations
 pthread_mutex_t infoMutex;
 
 // number for checking in info is updated
@@ -373,6 +376,136 @@ int GENERATION_RATE = 100;
 
 int lastAtomChecked = 0;
 
+int totalAtoms = 0;
+
+// initialize tube, head and info pointers
+mytube *tube1 = NULL;
+mytube *tube2 = NULL;
+mytube *tube3 = NULL;
+atom_in_tube *head1 = NULL;
+atom_in_tube *head2 = NULL;
+atom_in_tube *head3 = NULL;
+Information *info = NULL;
+
+// function to called by each generated atom thread
+void *atomThreadFunc(void *arg) {
+  // lock the atom and info mutex
+  pthread_mutex_lock(&infoMutex);
+  atom *newAtom = (atom *)malloc(sizeof(atom));
+  newAtom = (atom *)arg;
+  // get the test tube with smallest TS
+  int *smallestTubeNo = getSmallestTS(tube1, tube2, tube3, NULL);
+  int additionResult = 0;
+  int trial = 0;
+  int firstTried = *smallestTubeNo;
+  while (trial < 3) {
+    if (*smallestTubeNo == 1) {
+      additionResult = addAtom(&tube1, *newAtom, &head1);
+    } else if (*smallestTubeNo == 2) {
+      additionResult = addAtom(&tube2, *newAtom, &head2);
+    } else {
+      additionResult = addAtom(&tube3, *newAtom, &head3);
+    }
+    // if the atom is added successfully
+    if (additionResult == 1) {
+      break;
+    } else if (additionResult == 2) {
+      // update the info
+      infoUpdated = 1;
+      switch (*smallestTubeNo) {
+      case 1:
+        info->tubeID = 1;
+        info->tube = *tube1;
+        // clear the test tube
+        head1 = clearTube(&tube1, head1);
+        break;
+      case 2:
+        info->tubeID = 2;
+        info->tube = *tube2;
+        // clear the test tube
+        head2 = clearTube(&tube2, head2);
+        break;
+      case 3:
+        info->tubeID = 3;
+        info->tube = *tube3;
+        // clear the test tube
+        head3 = clearTube(&tube3, head3);
+        break;
+      default:
+        break;
+      }
+      break;
+    }
+    if (trial == 0) {
+      smallestTubeNo = getSmallestTS(tube1, tube2, tube3, smallestTubeNo);
+    } else if (trial == 1) {
+      if (*smallestTubeNo == 1) {
+        if (firstTried == 2) {
+          *smallestTubeNo = 3;
+        } else {
+          *smallestTubeNo = 2;
+        }
+      } else if (*smallestTubeNo == 2) {
+        if (firstTried == 1) {
+          *smallestTubeNo = 3;
+        } else {
+          *smallestTubeNo = 1;
+        }
+      } else {
+        if (firstTried == 1) {
+          *smallestTubeNo = 2;
+        } else {
+          *smallestTubeNo = 1;
+        }
+      }
+    }
+    trial++;
+  }
+  if (newAtom->atomID == totalAtoms) {
+    lastAtomChecked = 1;
+  }
+  // unlock the atom and info mutex
+  pthread_mutex_unlock(&infoMutex);
+  free(newAtom);
+  pthread_exit(0);
+  return NULL;
+};
+
+// function to called by info thread
+void *infoThreadFunc(void *arg) {
+  int *totalCount;
+  totalCount = (int *)arg;
+  while (1) {
+    // lock info mutex
+    pthread_mutex_lock(&infoMutex);
+    if (infoUpdated == 1) {
+      // print created molecule type and tube id e.g.: NH3 is created in
+      // tube 1.
+      printf("%s is created in tube %d.\n",
+             getMoleculeName(info->tube.moleculeTYPE), info->tubeID);
+      // update infoUpdated
+      infoUpdated = 0;
+      // unlock info mutex
+    }
+
+    if (atomCount == *totalCount && lastAtomChecked == 1) {
+      // clean up all pointers
+      free(tube1);
+      free(tube2);
+      free(tube3);
+      free(head1);
+      free(head2);
+      free(head3);
+      free(info);
+      // exit the program
+      exit(0);
+    }
+
+    pthread_mutex_unlock(&infoMutex);
+  }
+  return NULL;
+}
+
 // main function
 int main(int argc, char *argv[]) {
 
@@ -409,140 +542,25 @@ int main(int argc, char *argv[]) {
   printf("OXYGEN ATOMS: %d\n", NUM_O);
   printf("NITROGEN ATOMS: %d\n", NUM_N);
 
-  int totalAtoms = NUM_C + NUM_H + NUM_O + NUM_N;
+  totalAtoms = NUM_C + NUM_H + NUM_O + NUM_N;
 
   // initialize 3 test tubes
-  mytube *tube1 = generateTube();
-  mytube *tube2 = generateTube();
-  mytube *tube3 = generateTube();
-
-  // initialize 3 atom_in_tube pointers
-  atom_in_tube *head1 = NULL;
-  atom_in_tube *head2 = NULL;
-  atom_in_tube *head3 = NULL;
+  tube1 = (mytube *)malloc(sizeof(mytube));
+  tube2 = (mytube *)malloc(sizeof(mytube));
+  tube3 = (mytube *)malloc(sizeof(mytube));
+  // generate tubes
+  tube1 = generateTube();
+  tube2 = generateTube();
+  tube3 = generateTube();
 
   // create the information struct
-  Information *info = (Information *)malloc(sizeof(Information));
-
-  // function to called by each generated atom thread
-  void *atomThreadFunc(void *arg) {
-    // lock the atom and info mutex
-    pthread_mutex_lock(&atomMutex);
-    pthread_mutex_lock(&infoMutex);
-    atom *newAtom = (atom *)malloc(sizeof(atom));
-    newAtom = (atom *)arg;
-    // get the test tube with smallest TS
-    int *smallestTubeNo = getSmallestTS(tube1, tube2, tube3, NULL);
-    int additionResult = 0;
-    int trial = 0;
-    int firstTried = *smallestTubeNo;
-    while (trial < 3) {
-      if (*smallestTubeNo == 1) {
-        additionResult = addAtom(&tube1, *newAtom, &head1);
-      } else if (*smallestTubeNo == 2) {
-        additionResult = addAtom(&tube2, *newAtom, &head2);
-      } else {
-        additionResult = addAtom(&tube3, *newAtom, &head3);
-      }
-      // if the atom is added successfully
-      if (additionResult == 1) {
-        break;
-      } else if (additionResult == 2) {
-        // update the info
-        infoUpdated = 1;
-        switch (*smallestTubeNo) {
-        case 1:
-          info->tubeID = 1;
-          info->tube = *tube1;
-          // clear the test tube
-          head1 = clearTube(&tube1, head1);
-          break;
-        case 2:
-          info->tubeID = 2;
-          info->tube = *tube2;
-          // clear the test tube
-          head2 = clearTube(&tube2, head2);
-          break;
-        case 3:
-          info->tubeID = 3;
-          info->tube = *tube3;
-          // clear the test tube
-          head3 = clearTube(&tube3, head3);
-          break;
-        default:
-          break;
-        }
-        break;
-      }
-      if (trial == 0) {
-        smallestTubeNo = getSmallestTS(tube1, tube2, tube3, smallestTubeNo);
-      } else if (trial == 1) {
-        if (*smallestTubeNo == 1) {
-          if (firstTried == 2) {
-            *smallestTubeNo = 3;
-          } else {
-            *smallestTubeNo = 2;
-          }
-        } else if (*smallestTubeNo == 2) {
-          if (firstTried == 1) {
-            *smallestTubeNo = 3;
-          } else {
-            *smallestTubeNo = 1;
-          }
-        } else {
-          if (firstTried == 1) {
-            *smallestTubeNo = 2;
-          } else {
-            *smallestTubeNo = 1;
-          }
-        }
-      }
-      trial++;
-    }
-    if (newAtom->atomID == totalAtoms) {
-      lastAtomChecked = 1;
-    }
-    // unlock the atom and info mutex
-    pthread_mutex_unlock(&atomMutex);
-    pthread_mutex_unlock(&infoMutex);
-    free(newAtom);
-    return NULL;
-  };
-
-  // function to called by info thread
-  void *infoThreadFunc(void *arg) {
-    int *totalCount;
-    totalCount = (int *)arg;
-    while (1) {
-      // lock info mutex
-      pthread_mutex_lock(&atomMutex);
-      pthread_mutex_lock(&infoMutex);
-      if (infoUpdated == 1) {
-        // print created molecule type and tube id e.g.: NH3 is created in
-        // tube 1.
-        printf("%s is created in tube %d.\n",
-               getMoleculeName(info->tube.moleculeTYPE), info->tubeID);
-        // update infoUpdated
-        infoUpdated = 0;
-        // unlock info mutex
-      }
-
-      if (atomCount == *totalCount && lastAtomChecked == 1) {
-        exit(0);
-      }
-
-      pthread_mutex_unlock(&atomMutex);
-      pthread_mutex_unlock(&infoMutex);
-    }
-    return NULL;
-  }
+  info = (Information *)malloc(sizeof(Information));
 
   // generate atom threads and info thread
   pthread_t atomThreads[totalAtoms];
   pthread_t infoThread;
 
   // initialize mutexes
-  pthread_mutex_init(&atomMutex, NULL);
   pthread_mutex_init(&infoMutex, NULL);
 
   // create the info thread
@@ -612,7 +630,6 @@ int main(int argc, char *argv[]) {
   pthread_join(infoThread, NULL);
 
   // destroy mutexes
-  pthread_mutex_destroy(&atomMutex);
   pthread_mutex_destroy(&infoMutex);
 
   return 0;
