@@ -1,4 +1,9 @@
-﻿### **EE442 PROGRAMMING ASSIGNMENT 1**
+﻿# os-scheduling-c
+This is a repository for my operating systems course programming assignment 1 which I completed during the course of METU EE442 Operating Systems in 2021-2022 Spring Semester.
+
+*This assignment's instructions credit to [**Middle East Technical University - Electrical - Electronics Engineering Department**](https://eee.metu.edu.tr/) and [**METU EE442 Operating Systems Course Lecturers**](https://catalog.metu.edu.tr/course.php?prog=567&course_code=5670442).*
+
+### **EE442 PROGRAMMING ASSIGNMENT 1**
 
 # **Chemical Reaction Simulation Using Pthread Library**
 
